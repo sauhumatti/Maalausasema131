@@ -63,6 +63,47 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Vanteiden maalaus Hero Section */}
+      <section className="py-24 bg-white">
+        <div className="container-custom">
+          <div className="grid md:grid-cols-2 gap-8 items-center">
+            <div className="order-2 md:order-1">
+              <Image
+                src="/images/131_asiakkaita-ts17076719179581.png"
+                alt="Vanteiden maalaus"
+                width={600}
+                height={400}
+                className="rounded-lg shadow-xl"
+                priority
+              />
+            </div>
+            <div className="order-1 md:order-2">
+              <h2 className="text-3xl font-bold mb-6 text-primary-800">
+                Vanteiden maalaus
+              </h2>
+              <div className="prose max-w-none">
+                <p className="text-lg mb-4">
+                  Tarjoamme ammattimaista vanteiden maalausta ja pintakäsittelyä.
+                  Kokemuksemme ja nykyaikaiset laitteemme takaavat laadukkaan lopputuloksen.
+                </p>
+                <p className="text-lg mb-4">
+                  Kaikki vanteemme käsitellään huolellisesti:
+                </p>
+                <ul className="list-disc ml-6 mb-6">
+                  <li>Perusteellinen puhdistus ja esikäsittely</li>
+                  <li>Ammattitaitoinen pintakäsittely</li>
+                  <li>Kestävä ja tyylikäs lopputulos</li>
+                  <li>Nopeat toimitusajat</li>
+                </ul>
+                <Link href="/menetelmat" className="btn btn-primary inline-block">
+                  Lue lisää menetelmistämme
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Gallery Section */}
       <section className="py-16 bg-gray-50">
         <div className="container-custom">

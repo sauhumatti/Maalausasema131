@@ -12,6 +12,14 @@ const nextConfig = {
         protocol: 'https',
         hostname: '131.fi',
       },
+      {
+        protocol: 'https',
+        hostname: 'replicate.delivery',
+      },
+      {
+        protocol: 'https',
+        hostname: 'replicate.com',
+      }
     ],
   },
   typescript: {
