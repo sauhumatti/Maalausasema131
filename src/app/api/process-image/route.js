@@ -1,5 +1,6 @@
 import Replicate from 'replicate';
 import sharp from 'sharp';
+import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
@@ -7,13 +8,13 @@ import path from 'path';
 // Configuration
 const config = {
     wheelPrompt: 'wheel',
-    carPrompt: 'car',
+    carPrompt: 'car',  // Keep car prompt for potential background removal.
     rimBrightnessThreshold: 50,
     modelId: 'tmappdev/lang-segment-anything:891411c38a6ed2d44c004b7b9e44217df7a5b07848f29ddefd2e28bc7cbf93bc',
     maxImageSize: 4096,
     supportedFormats: ['image/jpeg', 'image/png', 'image/webp'],
-    blurSigma: 2.0, // Gaussian blur sigma (adjust as needed) - Applied to extracted car
-    unsharpRadius: 1,  // Optional unsharp mask (very gentle)
+    blurSigma: 2.0,  // Gaussian blur
+    unsharpRadius: 1,
     unsharpSigma: 0.5,
     unsharpAmount: 0.5,
 };
@@ -122,26 +123,16 @@ async function processStream(stream) {
     return Buffer.from(combinedData);
 }
 
-async function extractCar(imageBuffer, maskBuffer) {
-    try {
-        console.log("Extracting car using mask...");
-        const extractedMask = await sharp(maskBuffer)
-            .extractChannel(0)
-            .toBuffer();
+async function applyMask(imageBuffer, maskBuffer) {
+    const extractedMask = await sharp(maskBuffer)
+        .extractChannel(0)
+        .toBuffer();
 
-        //ensure the input image is rgba before joining the channels.
-        const carOnlyBuffer = await sharp(imageBuffer)
-            .ensureAlpha()
-            .joinChannel(extractedMask)
-            .png()
-            .toBuffer(); //keep as png.
-        console.log(`Car extraction complete.`);
-        return carOnlyBuffer;
-
-    } catch (error) {
-        console.error('Error extracting car:', error);
-        throw error;
-    }
+    return await sharp(imageBuffer)
+        .ensureAlpha()  // Make sure the image has an alpha channel
+        .joinChannel(extractedMask)
+        .png()
+        .toBuffer();
 }
 
 async function extractWheels(imageBuffer, maskBuffer) {
@@ -317,7 +308,7 @@ export async function POST(request) {
     try {
         const formData = await request.formData();
         const imageFile = formData.get('image');
-        const color = formData.get('color');
+        // Remove color parameter requirement
         const removeBackgroundParam = formData.get('removeBackground');
 
         const shouldRemoveBackground = removeBackgroundParam === 'true';
@@ -325,16 +316,6 @@ export async function POST(request) {
 
         if (!imageFile) {
             return errorResponse('No image uploaded.');
-        }
-        if (!color) {
-            return errorResponse('Color parameter is required.');
-        }
-
-        let rimColor;
-        try {
-            rimColor = parseColor(color);
-        } catch (error) {
-            return errorResponse(error.message);
         }
 
         const imageBuffer = await imageFile.arrayBuffer().then(Buffer.from);
@@ -358,55 +339,7 @@ export async function POST(request) {
 
             // Process the car segmentation stream to get the mask
             const carMaskBuffer = await processStream(carOutput);
-
-            // Extract the car using the mask
-            carOnlyBuffer = await extractCar(jpgImageBuffer, carMaskBuffer);
-
-            // --- Apply edge blur to the car image ---
-            console.log("Applying edge blur to car cutout...");
-
-            // Approach for applying edge blur and sharpening
-            try {
-                // 1. Extract the alpha channel
-                const metadata = await sharp(carOnlyBuffer).metadata();
-                console.log(`Image dimensions: ${metadata.width}x${metadata.height}`);
-
-                // 2. Extract the alpha channel (transparency mask)
-                const alphaChannel = await sharp(carOnlyBuffer)
-                    .extractChannel(3) // Alpha channel
-                    .toBuffer();
-
-                // 3. Create a smoothed version of the alpha channel
-                const smoothedAlpha = await sharp(alphaChannel)
-                    .blur(config.blurSigma)
-                    .toBuffer();
-
-                // 4. Extract RGB channels from the car image
-                const rgbChannels = await sharp(carOnlyBuffer)
-                    .removeAlpha() // Keep only RGB channels
-                    .toBuffer();
-
-                // 5. Apply sharpening to the RGB channels to enhance details
-                const sharpenedRgb = await sharp(rgbChannels)
-                    .sharpen({
-                        sigma: 0.2,  // Radius of the Gaussian in pixels (default: 1.0)
-                        flat: 1.0,   // Flat/plateau area (default: 1.0)
-                        jagged: 5.0  // Jagged edge contrast (default: 2.0)
-                    })
-                    .toBuffer();
-
-                // 6. Join the sharpened RGB channels with the smoothed alpha channel
-                carOnlyBuffer = await sharp(sharpenedRgb)
-                    .joinChannel(smoothedAlpha)
-                    .png()
-                    .toBuffer();
-                console.log("Edge blur and sharpening successfully applied");
-
-            } catch (error) {
-                console.error("Error applying edge blur and sharpening:", error);
-                // Continue with the original car buffer if processing fails
-                console.log("Continuing with the original car cutout...");
-            }
+            carOnlyBuffer = await applyMask(jpgImageBuffer, carMaskBuffer);
         }
 
         // --- Wheel and Rim Processing (Always) ---
@@ -419,35 +352,36 @@ export async function POST(request) {
         }
 
         const wheelMaskBuffer = await processStream(wheelOutput);
-
         const wheelsOnlyBuffer = await extractWheels(jpgImageBuffer, wheelMaskBuffer);
-
         const rimsOnlyBuffer = await extractBrightParts(wheelsOnlyBuffer, config.rimBrightnessThreshold, jpgImageBuffer);
 
-        // Create TRANSPARENT colored rims.
-        const coloredRimsBuffer = await createTransparentColoredRims(rimsOnlyBuffer, rimColor);
+        // Ensure consistent image formats for the frontend
+        // Original image stays as JPEG
+        const originalImageBase64 = `data:image/jpeg;base64,${jpgImageBuffer.toString('base64')}`;
 
-        // --- Composite (Conditional) ---
-        let finalResultBuffer;
-        if (shouldRemoveBackground) {
-            // Composite colored rims *onto* the extracted car
-            console.log("Compositing colored rims onto extracted car...");
-            finalResultBuffer = await sharp(carOnlyBuffer)
-                .composite([{ input: coloredRimsBuffer, blend: 'over' }])
-                .png() // Ensure PNG output
-                .toBuffer();
-        } else {
-            //original image composited with colored rims.
-            console.log("Compositing colored rims with original image...");
-            finalResultBuffer = await sharp(jpgImageBuffer)
-                .composite([{ input: coloredRimsBuffer, blend: 'over' }])
-                .png() // Ensure PNG output.
-                .toBuffer();
-        }
+        // Convert rim mask to PNG with transparency
+        const pngRimMaskBuffer = await sharp(rimsOnlyBuffer)
+            .extractChannel(0) // Get the alpha/mask channel only
+            .toFormat('png')
+            .toBuffer();
+        const rimMaskBase64 = `data:image/png;base64,${pngRimMaskBuffer.toString('base64')}`;
 
-        // --- Output ---
-        return new Response(finalResultBuffer, {
-            headers: { 'Content-Type': 'image/png' }
+        // Car image should be PNG with transparency
+        const carImageBase64 = carOnlyBuffer ? 
+            `data:image/png;base64,${carOnlyBuffer.toString('base64')}` : null;
+
+        // Return response with all needed data for frontend processing
+        return new Response(JSON.stringify({
+            originalImage: originalImageBase64,
+            rimMask: rimMaskBase64,
+            carImage: carImageBase64,
+            shouldRemoveBackground: shouldRemoveBackground,
+            // Add this for compatibility with existing frontend
+            resultImage: carOnlyBuffer ? 
+                `data:image/png;base64,${carOnlyBuffer.toString('base64')}` : 
+                originalImageBase64
+        }), {
+            headers: { 'Content-Type': 'application/json' }
         });
 
     } catch (error) {
