@@ -27,17 +27,19 @@ export default function Navigation() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Check if we're on the homepage to determine text color
+  // Check if we're on the homepage or vanteiden-esikatselu to determine text color
   const isHomepage = pathname === '/';
-  const textColorClass = isScrolled ? 'text-gray-700' : (isHomepage ? 'text-white' : 'text-gray-700');
-  const logoSrc = isScrolled || !isHomepage 
-    ? "/images/cca0436b43e97276cc9f5da25d87ce24_391x60_0x0_394x60_crop3777.png" 
-    : "/images/Maalausasema_131_weblogo_2_white-ts16679130453777.png";
+  const isVanteidenEsikatselu = pathname === '/vanteiden-esikatselu';
+  const shouldUseWhiteText = (isHomepage || isVanteidenEsikatselu) && !isScrolled;
+  const textColorClass = shouldUseWhiteText ? 'text-white' : 'text-gray-700';
+  const logoSrc = shouldUseWhiteText
+    ? "/images/Maalausasema_131_weblogo_2_white-ts16679130453777.png"
+    : "/images/cca0436b43e97276cc9f5da25d87ce24_391x60_0x0_394x60_crop3777.png";
+
 
   return (
-    <nav className={`fixed w-full z-50 transition-all duration-300 ${
-      isScrolled ? 'bg-white shadow-md' : 'bg-transparent'
-    }`}>
+    <nav className={`fixed w-full z-50 transition-all duration-300 ${isScrolled ? 'bg-white shadow-md' : 'bg-primary-800'
+      }`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex justify-between items-center py-4">
           <div className="flex-shrink-0">
@@ -56,9 +58,7 @@ export default function Navigation() {
           <div className="md:hidden">
             <button
               onClick={() => setIsOpen(!isOpen)}
-              className={`inline-flex items-center justify-center p-2 rounded-md ${
-                isScrolled || !isHomepage ? 'text-gray-400 hover:text-gray-500 hover:bg-gray-100' : 'text-white hover:text-gray-200'
-              } focus:outline-none`}
+              className={`inline-flex items-center justify-center p-2 rounded-md ${textColorClass} ${shouldUseWhiteText ? 'hover:text-gray-200' : 'hover:text-gray-500 hover:bg-gray-100'} focus:outline-none`}
               aria-expanded={isOpen}
             >
               <span className="sr-only">Avaa päävalikko</span>
@@ -99,11 +99,10 @@ export default function Navigation() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`text-base font-medium transition-colors ${
-                  pathname === link.href
-                    ? `${isScrolled || !isHomepage ? 'text-primary' : 'text-white'} font-semibold`
-                    : `${textColorClass} hover:${isScrolled || !isHomepage ? 'text-primary' : 'text-gray-200'}`
-                }`}
+                className={`text-base font-medium transition-colors ${pathname === link.href
+                    ? `text-primary font-semibold`
+                    : `${textColorClass} hover:${shouldUseWhiteText ? 'text-white' : 'text-primary'}`
+                  }`}
               >
                 {link.text}
               </Link>
@@ -113,20 +112,18 @@ export default function Navigation() {
 
         {/* Mobile menu */}
         <div
-          className={`${
-            isOpen ? 'block' : 'hidden'
-          } md:hidden transition-all duration-300 ease-in-out`}
+          className={`${isOpen ? 'block' : 'hidden'
+            } md:hidden transition-all duration-300 ease-in-out`}
         >
           <div className="px-2 pt-2 pb-3 space-y-1 bg-white shadow-lg rounded-b-lg">
             {links.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`block px-3 py-2 text-base font-medium rounded-md ${
-                  pathname === link.href
+                className={`block px-3 py-2 text-base font-medium rounded-md ${pathname === link.href
                     ? 'text-primary bg-gray-50'
                     : 'text-gray-700 hover:text-primary hover:bg-gray-50'
-                }`}
+                  }`}
                 onClick={() => setIsOpen(false)}
               >
                 {link.text}

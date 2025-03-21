@@ -9,7 +9,7 @@ import path from 'path';
 const config = {
     wheelPrompt: 'wheel',
     carPrompt: 'car',  // Keep car prompt for potential background removal.
-    rimBrightnessThreshold: 50,
+    rimBrightnessThreshold: 30,
     modelId: 'tmappdev/lang-segment-anything:891411c38a6ed2d44c004b7b9e44217df7a5b07848f29ddefd2e28bc7cbf93bc',
     maxImageSize: 4096,
     supportedFormats: ['image/jpeg', 'image/png', 'image/webp'],
@@ -217,56 +217,103 @@ async function connectedComponentsLabeling(imageBuffer, threshold) {
     return { resolvedLabels, regionSizes, width, height };
 }
 
-async function extractBrightParts(wheelImageBuffer, brightnessThreshold, jpgConvertedImageBuffer) {
+async function extractBrightParts(wheelImageBuffer, initialThreshold, jpgConvertedImageBuffer) {
     try {
-        console.log(`Extracting bright parts with threshold ${brightnessThreshold}...`);
+        console.log(`Processing with multiple thresholds (30, 50, 80)...`);
 
-        const brightnessMaskBuffer = await sharp(wheelImageBuffer)
-            .flatten({ background: { r: 0, g: 0, b: 0 } })
-            .grayscale()
-            .threshold(brightnessThreshold)
-            .jpeg()
-            .toBuffer();
-
-        console.log(`Brightness mask created.`);
-
-        const { resolvedLabels, regionSizes, width, height } = await connectedComponentsLabeling(brightnessMaskBuffer, brightnessThreshold);
-
-        const sortedRegions = Object.entries(regionSizes)
-            .sort(([, sizeA], [, sizeB]) => sizeB - sizeA)
-            .map(([label]) => parseInt(label));
-
-        const keepLabels = new Set(sortedRegions.slice(0, 2));
-
-        const newMaskBuffer = Buffer.alloc(width * height);
-        for (let i = 0; i < resolvedLabels.length; i++) {
-            newMaskBuffer[i] = keepLabels.has(resolvedLabels[i]) ? 255 : 0;
-        }
-
-        const filteredMaskBuffer = await sharp(newMaskBuffer, {
-            raw: {
-                width: width,
-                height: height,
-                channels: 1
+        // 1. Get image dimensions and wheel pixel count (keep your existing code)
+        const jpgMetadata = await sharp(jpgConvertedImageBuffer).metadata();
+        let wheelPixelsCount = 0;
+        let wheelWidth, wheelHeight;
+        
+        try {
+            const wheelMetadata = await sharp(wheelImageBuffer).metadata();
+            wheelWidth = wheelMetadata.width;
+            wheelHeight = wheelMetadata.height;
+            
+            const wheelPixels = await sharp(wheelImageBuffer)
+                .grayscale()
+                .raw()
+                .toBuffer();
+            
+            for (let i = 0; i < wheelPixels.length; i++) {
+                if (wheelPixels[i] > 10) wheelPixelsCount++;
             }
-        })
-            .jpeg()
+            console.log(`Wheel Mask Dimensions: ${wheelWidth}x${wheelHeight}, Actual Wheel Pixels: ${wheelPixelsCount}`);
+        } catch (error) {
+            console.error('Error calculating wheel mask area:', error);
+            throw new Error("Could not determine wheel mask area. Aborting bright part extraction.");
+        }
+        
+        // 2. Process with multiple thresholds
+        const thresholds = [30, 50, 80]; // Low, medium, high thresholds
+        const results = {};
+        
+        for (const threshold of thresholds) {
+            console.log(`Processing with threshold: ${threshold}`);
+            
+            const brightnessMaskBuffer = await sharp(wheelImageBuffer)
+                .flatten({ background: { r: 0, g: 0, b: 0 } })
+                .grayscale()
+                .threshold(threshold)
+                .jpeg()
+                .toBuffer();
+                
+            const { resolvedLabels, regionSizes, width, height } = await connectedComponentsLabeling(brightnessMaskBuffer, threshold);
+
+            const sortedRegions = Object.entries(regionSizes)
+                .sort(([, sizeA], [, sizeB]) => sizeB - sizeA)
+                .map(([label]) => parseInt(label));
+
+            const keepLabels = new Set(sortedRegions.slice(0, 2));
+            const rimArea = Array.from(keepLabels).reduce((sum, label) => sum + (regionSizes[label] || 0), 0);
+
+            const rimPercentage = (rimArea / wheelPixelsCount) * 100;
+            console.log(`Threshold ${threshold}: Rim area ${rimArea} pixels (${rimPercentage.toFixed(2)}% of wheel)`);
+
+            // Create mask
+            const newMaskBuffer = Buffer.alloc(width * height);
+            for (let i = 0; i < resolvedLabels.length; i++) {
+                newMaskBuffer[i] = keepLabels.has(resolvedLabels[i]) ? 255 : 0;
+            }
+
+            const filteredMaskBuffer = await sharp(newMaskBuffer, {
+                raw: { width, height, channels: 1 }
+            })
+                .jpeg()
+                .toBuffer();
+
+            const extractedMask = await sharp(filteredMaskBuffer)
+                .grayscale()
+                .extractChannel(0)
+                .toBuffer();
+                
+            // Create rim-only image for this threshold
+            const rimsBuffer = await sharp(jpgConvertedImageBuffer)
+                .joinChannel(extractedMask)
+                .toBuffer();
+                
+            // Store mask for this threshold
+            const pngMaskBuffer = await sharp(extractedMask)
+                .png()
+                .toBuffer();
+                
+            results[threshold] = {
+                rimMask: `data:image/png;base64,${pngMaskBuffer.toString('base64')}`,
+                rimPercentage
+            };
+        }
+        
+        // Default mask (same as original functionality)
+        const defaultThreshold = 50;
+        const defaultMask = await sharp(jpgConvertedImageBuffer)
+            .joinChannel(Buffer.from(results[defaultThreshold].rimMask.split(',')[1], 'base64'))
             .toBuffer();
-
-        console.log(`Filtered brightness mask created.`);
-
-        const extractedMask = await sharp(filteredMaskBuffer)
-            .grayscale()
-            .extractChannel(0)
-            .toBuffer();
-
-        const rimsOnlyBuffer = await sharp(jpgConvertedImageBuffer)
-            .joinChannel(extractedMask)
-            .toBuffer();
-
-        console.log(`Rim extraction complete.`);
-        return rimsOnlyBuffer;
-
+            
+        return {
+            defaultBuffer: defaultMask,
+            allMasks: results
+        };
     } catch (error) {
         console.error('Error extracting bright parts:', error);
         throw error;
@@ -353,19 +400,25 @@ export async function POST(request) {
 
         const wheelMaskBuffer = await processStream(wheelOutput);
         const wheelsOnlyBuffer = await extractWheels(jpgImageBuffer, wheelMaskBuffer);
-        const rimsOnlyBuffer = await extractBrightParts(wheelsOnlyBuffer, config.rimBrightnessThreshold, jpgImageBuffer);
+        
+        // Get multiple threshold masks
+        const { defaultBuffer, allMasks } = await extractBrightParts(
+            wheelsOnlyBuffer, 
+            config.rimBrightnessThreshold, 
+            jpgImageBuffer
+        );
 
         // Ensure consistent image formats for the frontend
         // Original image stays as JPEG
         const originalImageBase64 = `data:image/jpeg;base64,${jpgImageBuffer.toString('base64')}`;
 
-        // Convert rim mask to PNG with transparency
-        const pngRimMaskBuffer = await sharp(rimsOnlyBuffer)
-            .extractChannel(0) // Get the alpha/mask channel only
+        // Default mask (threshold 50)
+        const defaultMaskBuffer = await sharp(defaultBuffer)
+            .extractChannel(0)
             .toFormat('png')
             .toBuffer();
-        const rimMaskBase64 = `data:image/png;base64,${pngRimMaskBuffer.toString('base64')}`;
-
+        const defaultMaskBase64 = `data:image/png;base64,${defaultMaskBuffer.toString('base64')}`;
+        
         // Car image should be PNG with transparency
         const carImageBase64 = carOnlyBuffer ? 
             `data:image/png;base64,${carOnlyBuffer.toString('base64')}` : null;
@@ -373,7 +426,9 @@ export async function POST(request) {
         // Return response with all needed data for frontend processing
         return new Response(JSON.stringify({
             originalImage: originalImageBase64,
-            rimMask: rimMaskBase64,
+            rimMask: defaultMaskBase64,           // Default mask (for backward compatibility)
+            rimMasks: allMasks,                   // All threshold masks for frontend selection
+            defaultThreshold: 50,                 // Default threshold used
             carImage: carImageBase64,
             shouldRemoveBackground: shouldRemoveBackground,
             // Add this for compatibility with existing frontend
