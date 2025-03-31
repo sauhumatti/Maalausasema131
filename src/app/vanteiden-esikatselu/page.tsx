@@ -736,33 +736,29 @@ export default function VanteidenEsikatselu() {
                                 <h2 className="text-xl font-semibold mb-4">2. Muokkaa asetuksia</h2>
 
                                 <div className="space-y-6">
-                                    {/* Rim Detection Coverage - Simplified section */}
+                                    {/* Rim Detection Coverage - Slider section */}
                                     {availableThresholds && Object.keys(availableThresholds).length > 0 && (
                                         <div>
-                                            <p className="font-medium mb-3">Vanteiden tunnistuksen tarkkuus:</p>
-                                            <div className="flex flex-wrap gap-3">
-                                                {Object.keys(availableThresholds)
-                                                    .sort((a, b) => Number(b) - Number(a)) // Sort from high to low threshold
-                                                    .map((threshold) => {
-                                                        const thresholdNum = Number(threshold);
-                                                        let coverage;
-                                                        if (thresholdNum >= 70) coverage = "Vähemmän rengasta";
-                                                        else if (thresholdNum >= 40) coverage = "Sopivasti molempia";
-                                                        else coverage = "Enemmän vannetta";
-
-                                                        return (
-                                                            <button
-                                                                key={threshold}
-                                                                onClick={() => handleThresholdChange(thresholdNum)}
-                                                                className={`px-4 py-2 rounded-md border transition-colors ${currentThreshold === thresholdNum
-                                                                    ? 'bg-primary text-white border-transparent'
-                                                                    : 'bg-white text-gray-700 border-gray-300 hover:border-primary'
-                                                                    }`}
-                                                            >
-                                                                {coverage}
-                                                            </button>
-                                                        );
-                                                    })}
+                                            <div className="mb-2 flex justify-between items-center">
+                                                <p className="font-medium">Vanteiden tunnistuksen tarkkuus:</p>
+                                                <span className="text-sm text-gray-600">
+                                                    {thresholdPercentages[currentThreshold]
+                                                        ? `Peittävyys: ${thresholdPercentages[currentThreshold].toFixed(1)}%`
+                                                        : ''}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="20"
+                                                max="100"
+                                                step="5"
+                                                value={currentThreshold}
+                                                onChange={(e) => handleThresholdChange(Number(e.target.value))}
+                                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary mb-2"
+                                            />
+                                            <div className="flex justify-between text-sm text-gray-500 px-1">
+                                                <span>Enemmän vannetta</span>
+                                                <span>Vähemmän rengasta</span>
                                             </div>
                                         </div>
                                     )}

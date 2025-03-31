@@ -245,8 +245,12 @@ async function extractBrightParts(wheelImageBuffer, initialThreshold, jpgConvert
             throw new Error("Could not determine wheel mask area. Aborting bright part extraction.");
         }
         
-        // 2. Process with multiple thresholds
-        const thresholds = [30, 50, 80]; // Low, medium, high thresholds
+        // 2. Process with multiple thresholds (20-100, step 5)
+        const thresholds = [];
+        for (let t = 20; t <= 100; t += 5) {
+            thresholds.push(t);
+        }
+        console.log(`Processing with thresholds: ${thresholds.join(', ')}...`);
         const results = {};
         
         for (const threshold of thresholds) {
@@ -256,7 +260,7 @@ async function extractBrightParts(wheelImageBuffer, initialThreshold, jpgConvert
                 .flatten({ background: { r: 0, g: 0, b: 0 } })
                 .grayscale()
                 .threshold(threshold)
-                .jpeg()
+                .png() // Use PNG for better quality mask before labeling
                 .toBuffer();
                 
             const { resolvedLabels, regionSizes, width, height } = await connectedComponentsLabeling(brightnessMaskBuffer, threshold);
@@ -280,7 +284,7 @@ async function extractBrightParts(wheelImageBuffer, initialThreshold, jpgConvert
             const filteredMaskBuffer = await sharp(newMaskBuffer, {
                 raw: { width, height, channels: 1 }
             })
-                .jpeg()
+                .png()
                 .toBuffer();
 
             const extractedMask = await sharp(filteredMaskBuffer)
