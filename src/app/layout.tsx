@@ -30,9 +30,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fi" className={`${roboto.variable} ${robotoCondensed.variable}`}>
-      <body className="min-h-screen flex flex-col bg-white">
+      <body className="min-h-screen flex flex-col bg-white text-gray-800">
         <Navigation />
-        <main className="flex-grow">
+        <main className="flex-grow pt-12"> {/* Adjusted padding-top again for even shorter navbar */}
           {children}
         </main>
         <Footer />

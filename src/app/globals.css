@@ -7,28 +7,60 @@
   --font-roboto-condensed: var(--font-roboto-condensed);
 }
 
+/* Base styles */
+@layer base {
+  body {
+    @apply text-gray-800;
+  }
+
+  /* Prevent default visited link styling */
+  a:visited {
+    color: inherit;
+  }
+
+  /* Navigation specific visited link override */
+  nav a:visited {
+    @apply text-white no-underline;
+  }
+
+  /* Apply active nav link style also on visited state */
+  nav a.underline:visited {
+    text-decoration-line: underline;
+  }
+}
+
+/* Button styles */
 .btn {
-  @apply inline-block px-6 py-3 text-center font-medium rounded-lg transition-colors;
+  @apply inline-block px-6 py-3 text-center font-medium rounded-lg transition-colors duration-200 ease-in-out;
 }
 
 .btn-primary {
-  @apply bg-primary text-white hover:bg-primary-600;
+  /* Dark button */
+  @apply bg-gray-800 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500;
 }
 
 .btn-secondary {
-  @apply bg-gray-200 text-gray-900 hover:bg-gray-300;
+  /* Light button on dark background */
+  @apply bg-white text-gray-900 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400;
 }
 
+/* Container and Layout */
 .container-custom {
-  @apply max-w-7xl mx-auto px-4 sm:px-6 py-8;
+  @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12;
 }
 
+/* Section spacing */
+.section-spacing {
+  @apply py-12 md:py-16 lg:py-20;
+}
+
+/* Gallery */
 .gallery-grid {
-  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4;
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8;
 }
 
 .gallery-item {
-  @apply relative overflow-hidden rounded-lg;
+  @apply relative overflow-hidden rounded-lg shadow-md;
 }
 
 .gallery-item img {
@@ -37,4 +69,9 @@
 
 .gallery-item:hover img {
   @apply scale-105;
+}
+
+/* Typography */
+.prose-custom {
+  @apply prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-700;
 }
