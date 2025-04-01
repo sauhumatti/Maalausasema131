@@ -34,6 +34,96 @@ export default function VanteidenEsikatselu() {
     const [isBackgroundSectionOpen, setIsBackgroundSectionOpen] = useState(false);
     const [defaultMaskPercentage, setDefaultMaskPercentage] = useState<number | null>(null); // Store initial percentage
 
+    // --- Quote Modal State ---
+    const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+    const [quoteName, setQuoteName] = useState('');
+    const [quotePhone, setQuotePhone] = useState('');
+    const [quoteEmail, setQuoteEmail] = useState('');
+    const [quotePreference, setQuotePreference] = useState<'call' | 'email'>('email');
+    const [isSubmittingQuote, setIsSubmittingQuote] = useState(false);
+    const [quoteSubmissionStatus, setQuoteSubmissionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [quoteError, setQuoteError] = useState<string | null>(null);
+
+// Quote Modal Handler Functions
+const handleOpenQuoteModal = () => {
+    if (!resultImage) {
+        alert("Viimeistele vanteen esikatselu ennen tarjouspyynnön lähettämistä.");
+        return;
+    }
+    setQuoteName('');
+    setQuotePhone('');
+    setQuoteEmail('');
+    setQuotePreference('email');
+    setQuoteSubmissionStatus('idle');
+    setQuoteError(null);
+    setIsQuoteModalOpen(true);
+};
+
+const handleCloseQuoteModal = () => {
+    if (!isSubmittingQuote) {
+        setIsQuoteModalOpen(false);
+    }
+};
+
+const handleQuoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resultImage) {
+        setQuoteError("Esikatselukuvaa ei löytynyt.");
+        setQuoteSubmissionStatus('error');
+        return;
+    }
+    if (!quoteName || !quotePhone || !quoteEmail) {
+        setQuoteError("Täytä kaikki vaaditut kentät (Nimi, Puhelin, Sähköposti).");
+        setQuoteSubmissionStatus('error');
+        return;
+    }
+
+    setIsSubmittingQuote(true);
+    setQuoteSubmissionStatus('idle');
+    setQuoteError(null);
+
+    try {
+        const payload = {
+            name: quoteName,
+            phone: quotePhone,
+            email: quoteEmail,
+            preference: quotePreference,
+            resultImage: resultImage,
+            color: color,
+            intensity: colorIntensity,
+            threshold: currentThreshold,
+            backgroundRemoved: removeBackground,
+            selectedBackgroundPath: selectedBackground,
+        };
+
+        const response = await fetch('/api/send-quote', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const responseData = await response.json();
+
+        if (!response.ok) {
+            throw new Error(responseData.error || `Palvelinvirhe: ${response.status}`);
+        }
+
+        setQuoteSubmissionStatus('success');
+        setTimeout(() => {
+            handleCloseQuoteModal();
+        }, 3000);
+
+    } catch (error) {
+        console.error("Quote submission error:", error);
+        setQuoteError(error instanceof Error ? error.message : "Lähetys epäonnistui tuntemattomasta syystä.");
+        setQuoteSubmissionStatus('error');
+    } finally {
+        setIsSubmittingQuote(false);
+    }
+};
+
 // Function to fetch available backgrounds
 const fetchAvailableBackgrounds = async () => {
     try {
@@ -857,7 +947,7 @@ return (
                     {/* Step 2: Result Preview Section */}
                     <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
                         <h2 className="text-xl font-semibold mb-4 text-gray-900">
-                             {isInitialProcessingDone ? "3." : "2."} Lopputulos
+                            {isInitialProcessingDone ? '2.' : '2.'} Esikatselu
                         </h2>
                         <div className="relative min-h-[300px] md:min-h-[400px] bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex items-center justify-center text-gray-500">
                              {!image ? (
@@ -970,7 +1060,7 @@ return (
                                              value={color}
                                              onChange={(e) => handleColorInputChange(e.target.value)}
                                              disabled={isApplyingChange || isCalculatingThresholds || isProcessingImage} // Disable during ANY processing
-                                             className="h-10 w-10 p-0.5 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" // Adjusted padding
+                                             className="flex-shrink-0 h-10 w-10 p-0.5 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" // Added flex-shrink-0
                                          />
                                          <input
                                              type="text"
@@ -1083,6 +1173,165 @@ return (
 
                 </div> {/* End max-w-3xl */}
             </div> {/* End Main Content Card */}
+
+            {/* Quote Request Button */}
+            {isInitialProcessingDone && resultImage && (
+                <div className="bg-white p-6 rounded-lg shadow-sm mb-6 text-center">
+                    <button
+                        onClick={handleOpenQuoteModal}
+                        disabled={isProcessingImage || isApplyingChange || isCalculatingThresholds || isSubmittingQuote}
+                        className="py-3 px-8 rounded-lg font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                    >
+                        Haluan maalauksen näillä asetuksilla
+                    </button>
+                </div>
+            )}
+
+            {/* Quote Modal */}
+            {isQuoteModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-lg shadow-xl p-6 md:p-8 max-w-lg w-full relative">
+                        {/* Close Button */}
+                        <button
+                            onClick={handleCloseQuoteModal}
+                            disabled={isSubmittingQuote}
+                            className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                            aria-label="Sulje"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        <h2 className="text-2xl font-semibold mb-6 text-gray-800 text-center">Lähetä Tarjouspyyntö</h2>
+
+                        {quoteSubmissionStatus === 'success' ? (
+                            <div className="text-center py-8">
+                                <svg className="mx-auto h-12 w-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <h3 className="text-xl font-medium mt-4 mb-2 text-gray-700">Kiitos pyynnöstäsi!</h3>
+                                <p className="text-gray-600">Olemme vastaanottaneet tietosi ja otamme sinuun pian yhteyttä.</p>
+                                <button
+                                    onClick={handleCloseQuoteModal}
+                                    className="mt-6 py-2 px-5 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                >
+                                    Sulje
+                                </button>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleQuoteSubmit} className="space-y-5">
+                                {/* Form Fields */}
+                                <div>
+                                    <label htmlFor="quoteName" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Nimi *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="quoteName"
+                                        value={quoteName}
+                                        onChange={(e) => setQuoteName(e.target.value)}
+                                        required
+                                        disabled={isSubmittingQuote}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary disabled:opacity-60"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="quotePhone" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Puhelinnumero *
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        id="quotePhone"
+                                        value={quotePhone}
+                                        onChange={(e) => setQuotePhone(e.target.value)}
+                                        required
+                                        disabled={isSubmittingQuote}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary disabled:opacity-60"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="quoteEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                                        Sähköposti *
+                                    </label>
+                                    <input
+                                        type="email"
+                                        id="quoteEmail"
+                                        value={quoteEmail}
+                                        onChange={(e) => setQuoteEmail(e.target.value)}
+                                        required
+                                        disabled={isSubmittingQuote}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary disabled:opacity-60"
+                                    />
+                                </div>
+
+                                {/* Contact Preference */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Haluan yhteydenoton:
+                                    </label>
+                                    <div className="flex gap-6">
+                                        <label className="inline-flex items-center">
+                                            <input
+                                                type="radio"
+                                                name="preference"
+                                                value="email"
+                                                checked={quotePreference === 'email'}
+                                                onChange={() => setQuotePreference('email')}
+                                                disabled={isSubmittingQuote}
+                                                className="form-radio h-4 w-4 text-primary focus:ring-primary disabled:opacity-60"
+                                            />
+                                            <span className="ml-2 text-sm text-gray-700">Sähköpostitse</span>
+                                        </label>
+                                        <label className="inline-flex items-center">
+                                            <input
+                                                type="radio"
+                                                name="preference"
+                                                value="call"
+                                                checked={quotePreference === 'call'}
+                                                onChange={() => setQuotePreference('call')}
+                                                disabled={isSubmittingQuote}
+                                                className="form-radio h-4 w-4 text-primary focus:ring-primary disabled:opacity-60"
+                                            />
+                                            <span className="ml-2 text-sm text-gray-700">Puhelimitse</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* Submission Error Message */}
+                                {quoteSubmissionStatus === 'error' && quoteError && (
+                                    <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm">
+                                        <strong>Virhe:</strong> {quoteError}
+                                    </div>
+                                )}
+
+                                {/* Submit Button */}
+                                <div className="pt-4 text-center">
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmittingQuote}
+                                        className="w-full sm:w-auto py-2.5 px-8 rounded-lg font-medium text-white bg-primary hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
+                                    >
+                                        {isSubmittingQuote ? (
+                                            <>
+                                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Lähetetään...
+                                            </>
+                                        ) : (
+                                            'Lähetä tarjouspyyntö'
+                                        )}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Static Contact Section */}
             <div className="bg-primary-900 p-6 rounded-lg shadow-sm text-center text-white">
