@@ -72,30 +72,43 @@ async function validateImage(imageBuffer) {
             throw new Error(`Unsupported image format: ${metadata.format}. Supported formats: ${config.supportedFormats.join(', ')}`);
         }
 
-        if (metadata.width > config.maxImageSize || metadata.height > config.maxImageSize) {
-            throw new Error(`Image dimensions too large. Maximum allowed: ${config.maxImageSize}x${config.maxImageSize}`);
-        }
         return metadata;
-
     } catch (error) {
-        console.error('Error validating image:', error);
+        console.error('Error validating image format:', error);
         throw error;
     }
 }
 
-async function convertToJpg(imageBuffer) {
+async function resizeAndConvertToJpg(imageBuffer) {
     try {
         const metadata = await validateImage(imageBuffer);
-        console.log(`Converting image from ${metadata.format} to JPG format...`);
-        const buffer = await sharp(imageBuffer)
+        let processingPipeline = sharp(imageBuffer);
+
+        // Check if resizing is needed
+        if (metadata.width > config.maxImageSize || metadata.height > config.maxImageSize) {
+            console.log(`Resizing image from ${metadata.width}x${metadata.height} to fit within ${config.maxImageSize}x${config.maxImageSize}`);
+            processingPipeline = processingPipeline.resize({
+                width: config.maxImageSize,
+                height: config.maxImageSize,
+                fit: 'inside', // Maintain aspect ratio, fit within bounds
+                withoutEnlargement: true // Don't make smaller images bigger
+            });
+        } else {
+            console.log("Image is within size limits, no resizing needed.");
+        }
+
+        // Chain the rest of the operations (flatten for JPG, convert)
+        const buffer = await processingPipeline
             .flatten({ background: { r: 255, g: 255, b: 255 } }) // White background for JPG
             .jpeg({ quality: 90 })
             .toBuffer();
-        console.log(`Conversion complete. Output size: ${buffer.length} bytes`);
+
+        const finalMetadata = await sharp(buffer).metadata();
+        console.log(`Conversion and resizing complete. Output size: ${buffer.length} bytes, Final Dimensions: ${finalMetadata.width}x${finalMetadata.height}`);
         return buffer;
     } catch (error) {
-        console.error('Error converting image to JPG:', error);
-        throw error; // Re-throw to be caught by the caller
+        console.error('Error resizing/converting image to JPG:', error);
+        throw error;
     }
 }
 
@@ -355,7 +368,7 @@ export async function POST(request) {
         }
 
         const imageBuffer = await imageFile.arrayBuffer().then(Buffer.from);
-        const jpgImageBuffer = await convertToJpg(imageBuffer);
+        const jpgImageBuffer = await resizeAndConvertToJpg(imageBuffer);
 
         const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
         if (!process.env.REPLICATE_API_TOKEN) {
