@@ -217,112 +217,92 @@ async function connectedComponentsLabeling(imageBuffer, threshold) {
     return { resolvedLabels, regionSizes, width, height };
 }
 
-async function extractBrightParts(wheelImageBuffer, initialThreshold, jpgConvertedImageBuffer) {
+async function extractBrightParts(wheelImageBuffer, jpgConvertedImageBuffer, thresholdsToCalculate) {
     try {
-        console.log(`Processing with multiple thresholds (30, 50, 80)...`);
+        console.log(`Extracting bright parts for thresholds: ${thresholdsToCalculate.join(', ')}...`);
 
         // 1. Get image dimensions and wheel pixel count (keep your existing code)
         const jpgMetadata = await sharp(jpgConvertedImageBuffer).metadata();
         let wheelPixelsCount = 0;
         let wheelWidth, wheelHeight;
-        
+
         try {
             const wheelMetadata = await sharp(wheelImageBuffer).metadata();
             wheelWidth = wheelMetadata.width;
             wheelHeight = wheelMetadata.height;
-            
+
             const wheelPixels = await sharp(wheelImageBuffer)
                 .grayscale()
                 .raw()
                 .toBuffer();
-            
+
             for (let i = 0; i < wheelPixels.length; i++) {
-                if (wheelPixels[i] > 10) wheelPixelsCount++;
+                if (wheelPixels[i] > 10) wheelPixelsCount++; // Using a small threshold to count pixels belonging to the wheel mask
             }
-            console.log(`Wheel Mask Dimensions: ${wheelWidth}x${wheelHeight}, Actual Wheel Pixels: ${wheelPixelsCount}`);
+            console.log(`Wheel Mask Dimensions: ${wheelWidth}x${wheelHeight}, Approx Wheel Pixels: ${wheelPixelsCount}`);
         } catch (error) {
             console.error('Error calculating wheel mask area:', error);
-            throw new Error("Could not determine wheel mask area. Aborting bright part extraction.");
+            // Allow continuing, but percentages might be inaccurate or NaN
+            wheelPixelsCount = 1; // Avoid division by zero, but mark as potentially inaccurate
+             console.warn("Could not accurately determine wheel mask area. Percentage calculation might be affected.");
         }
-        
-        // 2. Process with multiple thresholds (20-100, step 5)
-        const thresholds = [];
-        for (let t = 20; t <= 100; t += 5) {
-            thresholds.push(t);
-        }
-        console.log(`Processing with thresholds: ${thresholds.join(', ')}...`);
+
+        // 2. Process only the specified thresholds
         const results = {};
-        
-        for (const threshold of thresholds) {
+
+        for (const threshold of thresholdsToCalculate) {
             console.log(`Processing with threshold: ${threshold}`);
-            
+
             const brightnessMaskBuffer = await sharp(wheelImageBuffer)
                 .flatten({ background: { r: 0, g: 0, b: 0 } })
                 .grayscale()
                 .threshold(threshold)
-                .png() // Use PNG for better quality mask before labeling
+                .png()
                 .toBuffer();
-                
+
             const { resolvedLabels, regionSizes, width, height } = await connectedComponentsLabeling(brightnessMaskBuffer, threshold);
 
             const sortedRegions = Object.entries(regionSizes)
                 .sort(([, sizeA], [, sizeB]) => sizeB - sizeA)
                 .map(([label]) => parseInt(label));
 
+            // Keep the largest two bright components (likely the rims)
             const keepLabels = new Set(sortedRegions.slice(0, 2));
             const rimArea = Array.from(keepLabels).reduce((sum, label) => sum + (regionSizes[label] || 0), 0);
 
-            const rimPercentage = (rimArea / wheelPixelsCount) * 100;
-            console.log(`Threshold ${threshold}: Rim area ${rimArea} pixels (${rimPercentage.toFixed(2)}% of wheel)`);
+            // Calculate percentage, handle potential division by zero or inaccurate count
+             const rimPercentage = wheelPixelsCount > 0 ? (rimArea / wheelPixelsCount) * 100 : 0;
+             console.log(`Threshold ${threshold}: Rim area ${rimArea} pixels (${rimPercentage.toFixed(2)}% of wheel)`);
 
-            // Create mask
+
+            // Create mask buffer from labeled data
             const newMaskBuffer = Buffer.alloc(width * height);
             for (let i = 0; i < resolvedLabels.length; i++) {
                 newMaskBuffer[i] = keepLabels.has(resolvedLabels[i]) ? 255 : 0;
             }
 
-            const filteredMaskBuffer = await sharp(newMaskBuffer, {
+            // Convert raw mask buffer to PNG format buffer
+            const filteredMaskBufferPng = await sharp(newMaskBuffer, {
                 raw: { width, height, channels: 1 }
             })
-                .png()
-                .toBuffer();
+            .png()
+            .toBuffer();
 
-            const extractedMask = await sharp(filteredMaskBuffer)
-                .grayscale()
-                .extractChannel(0)
-                .toBuffer();
-                
-            // Create rim-only image for this threshold
-            const rimsBuffer = await sharp(jpgConvertedImageBuffer)
-                .joinChannel(extractedMask)
-                .toBuffer();
-                
-            // Store mask for this threshold
-            const pngMaskBuffer = await sharp(extractedMask)
-                .png()
-                .toBuffer();
-                
+            // Store mask as base64 PNG
             results[threshold] = {
-                rimMask: `data:image/png;base64,${pngMaskBuffer.toString('base64')}`,
+                rimMask: `data:image/png;base64,${filteredMaskBufferPng.toString('base64')}`,
                 rimPercentage
             };
         }
-        
-        // Default mask (same as original functionality)
-        const defaultThreshold = 50;
-        const defaultMask = await sharp(jpgConvertedImageBuffer)
-            .joinChannel(Buffer.from(results[defaultThreshold].rimMask.split(',')[1], 'base64'))
-            .toBuffer();
-            
-        return {
-            defaultBuffer: defaultMask,
-            allMasks: results
-        };
+
+        return results; // Return the object containing results for calculated thresholds
+
     } catch (error) {
         console.error('Error extracting bright parts:', error);
         throw error;
     }
 }
+
 
 // MODIFIED FUNCTION:  Creates transparent colored rims.
 async function createTransparentColoredRims(rimsOnlyBuffer, color) {
@@ -354,16 +334,21 @@ async function createTransparentColoredRims(rimsOnlyBuffer, color) {
     }
 }
 
-// API endpoint
+// API endpoint - MODIFIED
 export async function POST(request) {
     try {
         const formData = await request.formData();
         const imageFile = formData.get('image');
-        // Remove color parameter requirement
         const removeBackgroundParam = formData.get('removeBackground');
+        // NEW: Check if all thresholds should be calculated
+        const calculateAllThresholdsParam = formData.get('calculateAllThresholds');
 
         const shouldRemoveBackground = removeBackgroundParam === 'true';
+        const calculateAllThresholds = calculateAllThresholdsParam === 'true';
+
         console.log(`Remove background: ${shouldRemoveBackground}`);
+        console.log(`Calculate all thresholds: ${calculateAllThresholds}`);
+
 
         if (!imageFile) {
             return errorResponse('No image uploaded.');
@@ -377,23 +362,59 @@ export async function POST(request) {
             return errorResponse('Replicate API token not configured', 500);
         }
 
+        // --- If calculating all thresholds, we just need the masks ---
+        if (calculateAllThresholds) {
+            console.log("Calculating all thresholds only...");
+
+            // We still need the wheel mask first
+            console.log(`Running wheel segmentation with prompt "${config.wheelPrompt}"...`);
+            const wheelInput = { image: getBase64(jpgImageBuffer), text_prompt: config.wheelPrompt };
+            const wheelOutput = await replicate.run(config.modelId, { input: wheelInput });
+
+            if (!wheelOutput.getReader || typeof wheelOutput.getReader !== 'function') {
+                 return errorResponse('Unexpected response type from API (wheel segmentation)', 500);
+            }
+
+            const wheelMaskBuffer = await processStream(wheelOutput);
+            const wheelsOnlyBuffer = await extractWheels(jpgImageBuffer, wheelMaskBuffer);
+
+             // Define thresholds to calculate
+            const thresholds = [20, 30, 40, 50, 60, 70, 80, 90, 100];
+            const allMasks = await extractBrightParts(
+                wheelsOnlyBuffer,
+                jpgImageBuffer,
+                thresholds // Pass the specific thresholds
+            );
+
+            return new Response(JSON.stringify({
+                rimMasks: allMasks,
+                defaultThreshold: config.rimBrightnessThreshold // Still return default for consistency
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        // --- Initial Processing (Only default threshold) ---
+        console.log("Performing initial processing (default threshold only)...")
+
         // --- Car Segmentation (Conditional) ---
         let carOnlyBuffer = null;
+        let carImageBase64 = null;
         if (shouldRemoveBackground) {
             console.log(`Running car segmentation on original image with prompt "${config.carPrompt}"...`);
             const carInput = { image: getBase64(jpgImageBuffer), text_prompt: config.carPrompt };
             const carOutput = await replicate.run(config.modelId, { input: carInput });
 
             if (!carOutput.getReader || typeof carOutput.getReader !== 'function') {
-                return errorResponse('Unexpected response type from API (car segmentation)', 500);
-            }
+                 return errorResponse('Unexpected response type from API (car segmentation)', 500);
+             }
 
-            // Process the car segmentation stream to get the mask
             const carMaskBuffer = await processStream(carOutput);
             carOnlyBuffer = await applyMask(jpgImageBuffer, carMaskBuffer);
+            carImageBase64 = `data:image/png;base64,${carOnlyBuffer.toString('base64')}`;
         }
 
-        // --- Wheel and Rim Processing (Always) ---
+        // --- Wheel Segmentation (Always) ---
         console.log(`Running wheel segmentation with prompt "${config.wheelPrompt}"...`);
         const wheelInput = { image: getBase64(jpgImageBuffer), text_prompt: config.wheelPrompt };
         const wheelOutput = await replicate.run(config.modelId, { input: wheelInput });
@@ -404,47 +425,42 @@ export async function POST(request) {
 
         const wheelMaskBuffer = await processStream(wheelOutput);
         const wheelsOnlyBuffer = await extractWheels(jpgImageBuffer, wheelMaskBuffer);
-        
-        // Get multiple threshold masks
-        const { defaultBuffer, allMasks } = await extractBrightParts(
-            wheelsOnlyBuffer, 
-            config.rimBrightnessThreshold, 
-            jpgImageBuffer
+
+        // Calculate ONLY the default threshold
+        const defaultThresholdMasks = await extractBrightParts(
+            wheelsOnlyBuffer,
+            jpgImageBuffer,
+            [config.rimBrightnessThreshold] // Only calculate default
         );
 
-        // Ensure consistent image formats for the frontend
-        // Original image stays as JPEG
+        const defaultMaskData = defaultThresholdMasks[config.rimBrightnessThreshold];
+        if (!defaultMaskData) {
+             throw new Error(`Failed to calculate default threshold mask (${config.rimBrightnessThreshold})`);
+        }
+
         const originalImageBase64 = `data:image/jpeg;base64,${jpgImageBuffer.toString('base64')}`;
 
-        // Default mask (threshold 50)
-        const defaultMaskBuffer = await sharp(defaultBuffer)
-            .extractChannel(0)
-            .toFormat('png')
-            .toBuffer();
-        const defaultMaskBase64 = `data:image/png;base64,${defaultMaskBuffer.toString('base64')}`;
-        
-        // Car image should be PNG with transparency
-        const carImageBase64 = carOnlyBuffer ? 
-            `data:image/png;base64,${carOnlyBuffer.toString('base64')}` : null;
+        // Base image for the result depends on whether background was removed
+        const resultImageBase = carOnlyBuffer ? carImageBase64 : originalImageBase64;
 
-        // Return response with all needed data for frontend processing
+        // Return response for initial processing
         return new Response(JSON.stringify({
             originalImage: originalImageBase64,
-            rimMask: defaultMaskBase64,           // Default mask (for backward compatibility)
-            rimMasks: allMasks,                   // All threshold masks for frontend selection
-            defaultThreshold: 50,                 // Default threshold used
-            carImage: carImageBase64,
+            rimMask: defaultMaskData.rimMask, // The single mask calculated
+            rimPercentage: defaultMaskData.rimPercentage, // Percentage for the default mask
+            carImage: carImageBase64, // PNG with transparency or null
             shouldRemoveBackground: shouldRemoveBackground,
-            // Add this for compatibility with existing frontend
-            resultImage: carOnlyBuffer ? 
-                `data:image/png;base64,${carOnlyBuffer.toString('base64')}` : 
-                originalImageBase64
+            resultImage: resultImageBase, // Base image (car only or original)
+            defaultThreshold: config.rimBrightnessThreshold,
+            // NOTE: rimMasks is intentionally omitted in the initial response
         }), {
             headers: { 'Content-Type': 'application/json' }
         });
 
     } catch (error) {
         console.error('Error in processing:', error);
-        return errorResponse(error.message || 'Internal Server Error', 500);
+        // Ensure the error message is extracted correctly
+        const message = error instanceof Error ? error.message : String(error);
+        return errorResponse(message || 'Internal Server Error', 500);
     }
 }
