@@ -177,49 +177,121 @@ const presetColors = [
     { name: 'Hopea', value: '#c0c0c0' },
 ];
 
-const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-        const file = e.target.files[0];
+// Client-side image resizing function
+const resizeImageBeforeUpload = async (
+    file: File,
+    maxWidth: number = 1920,
+    maxHeight: number = 1920,
+    quality: number = 0.85
+): Promise<string> => {
+    return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = (event) => {
-            if (event.target) {
-                // Reset ALL states
-                setImage(event.target.result as string);
-                setIsProcessingImage(false);
-                setIsCalculatingThresholds(false);
-                setIsApplyingChange(false);
-                setIsInitialProcessingDone(false);
-                setResultImage(null);
-                setColor('#ff0000');
-                setColorIntensity(100);
-                setRemoveBackground(true);
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
 
-                // Reset threshold-related states
-                setAvailableThresholds(null);
-                setCurrentThreshold(50); // Reset slider default
-                setThresholdPercentages({});
-                setDetailedThresholdsCalculated(false);
-                setShowThresholdSlider(false);
-                setIsCalculatingThresholds(false);
-                setDefaultMaskPercentage(null);
-
-                // Clear image bitmaps
-                setOriginalImageBitmap(null);
-                setRimMaskBitmap(null);
-                setCarOnlyImageBitmap(null);
-                setOriginalImageDimensions(null);
-
-                // Backgrounds
-                setSelectedBackground(null);
-                setIsBackgroundSectionOpen(false);
-
-                // Clean up any object URLs
-                if (resultImage) {
-                    URL.revokeObjectURL(resultImage);
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height = Math.round(height * (maxWidth / width));
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width = Math.round(width * (maxHeight / height));
+                        height = maxHeight;
+                    }
                 }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                if (!ctx) {
+                    reject(new Error('Could not get canvas context'));
+                    return;
+                }
+
+                ctx.drawImage(img, 0, 0, width, height);
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                if (typeof reader.result === 'string') {
+                                    console.log(`Resized image to ${width}x${height}, size: ${Math.round(blob.size / 1024)} KB`);
+                                    resolve(reader.result);
+                                } else {
+                                    reject(new Error('Failed to convert blob to data URL'));
+                                }
+                            };
+                            reader.readAsDataURL(blob);
+                        } else {
+                            reject(new Error('Canvas to Blob conversion failed'));
+                        }
+                    },
+                    'image/jpeg',
+                    quality
+                );
+            };
+            img.onerror = reject;
+            if (e.target?.result) {
+                img.src = e.target.result as string;
+            } else {
+                reject(new Error('Failed to read file'));
             }
         };
+        reader.onerror = reject;
         reader.readAsDataURL(file);
+    });
+};
+
+const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+        try {
+            const file = e.target.files[0];
+            // Resize the image before setting it
+            const resizedImageDataUrl = await resizeImageBeforeUpload(file);
+            
+            // Reset ALL states
+            setImage(resizedImageDataUrl);
+            setIsProcessingImage(false);
+            setIsCalculatingThresholds(false);
+            setIsApplyingChange(false);
+            setIsInitialProcessingDone(false);
+            setResultImage(null);
+            setColor('#ff0000');
+            setColorIntensity(100);
+            setRemoveBackground(true);
+
+            // Reset threshold-related states
+            setAvailableThresholds(null);
+            setCurrentThreshold(50); // Reset slider default
+            setThresholdPercentages({});
+            setDetailedThresholdsCalculated(false);
+            setShowThresholdSlider(false);
+            setIsCalculatingThresholds(false);
+            setDefaultMaskPercentage(null);
+
+            // Clear image bitmaps
+            setOriginalImageBitmap(null);
+            setRimMaskBitmap(null);
+            setCarOnlyImageBitmap(null);
+            setOriginalImageDimensions(null);
+
+            // Backgrounds
+            setSelectedBackground(null);
+            setIsBackgroundSectionOpen(false);
+
+            // Clean up any object URLs
+            if (resultImage) {
+                URL.revokeObjectURL(resultImage);
+            }
+        } catch (error) {
+            console.error('Error resizing image:', error);
+            alert('Error processing image. Please try a different image or check file format.');
+        }
     }
 };
 
@@ -253,9 +325,10 @@ const processImage = async () => {
         const initialColor = '#ff0000';
         setColor(initialColor);
 
+        // Image is already resized, just convert back to blob
         const imageBlob = await fetch(image).then((r) => r.blob());
         const formData = new FormData();
-        formData.append('image', imageBlob, 'image.jpg');
+        formData.append('image', imageBlob, 'resized_image.jpg');
         formData.append('removeBackground', removeBackground.toString());
 
         console.log("Sending initial processing request...");
@@ -415,9 +488,10 @@ const calculateDetailedThresholds = async () => {
     setShowThresholdSlider(false); // Hide slider while calculating
 
     try {
+        // Image is already resized, just convert back to blob
         const imageBlob = await fetch(image).then((r) => r.blob());
         const formData = new FormData();
-        formData.append('image', imageBlob, 'image.jpg');
+        formData.append('image', imageBlob, 'resized_image.jpg');
         formData.append('calculateAllThresholds', 'true'); // IMPORTANT FLAG
 
         console.log("Sending request for detailed thresholds...");
