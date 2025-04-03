@@ -65,6 +65,27 @@ const handleCloseQuoteModal = () => {
     }
 };
 
+// Helper function to convert Blob URL to Base64 Data URL
+const blobUrlToBase64 = async (blobUrl: string): Promise<string> => {
+    const response = await fetch(blobUrl);
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result);
+            } else {
+                reject(new Error('Failed to read blob as Data URL.'));
+            }
+        };
+        reader.onerror = () => reject(new Error('FileReader error'));
+        reader.readAsDataURL(blob);
+    });
+};
+
 const handleQuoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resultImage) {
@@ -83,12 +104,27 @@ const handleQuoteSubmit = async (e: React.FormEvent) => {
     setQuoteError(null);
 
     try {
+        // Convert resultImage if it's a blob URL
+        let resultImageForPayload = resultImage;
+        if (resultImage.startsWith('blob:')) {
+            console.log("Converting blob URL to Base64 for submission...");
+            try {
+                resultImageForPayload = await blobUrlToBase64(resultImage);
+                console.log("Blob URL converted successfully.");
+            } catch (conversionError) {
+                console.error("Error converting blob URL to Base64:", conversionError);
+                throw new Error("Esikatselukuvan valmistelu epäonnistui.");
+            }
+        } else if (!resultImage.startsWith('data:image/png;base64,')) {
+            console.warn("resultImage is neither a blob URL nor a base64 PNG data URL:", resultImage.substring(0, 50) + "...");
+        }
+
         const payload = {
             name: quoteName,
             phone: quotePhone,
             email: quoteEmail,
             preference: quotePreference,
-            resultImage: resultImage,
+            resultImage: resultImageForPayload,
             color: color,
             intensity: colorIntensity,
             threshold: currentThreshold,
