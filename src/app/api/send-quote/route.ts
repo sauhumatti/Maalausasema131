@@ -8,6 +8,7 @@ export async function POST(request: Request) {
       name,
       phone,
       email,
+      message,
       preference,
       resultImage,
       color,
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
       Tunnistuksen tarkkuus (Threshold): ${threshold}
       Tausta poistettu: ${backgroundRemoved ? 'Kyllä' : 'Ei'}
       Valittu taustakuva: ${selectedBackgroundPath || 'Ei valittu / Ei käytössä'}
+      ${message ? `\nLisäviesti:\n${message}\n` : ''}
 
       Katso liitteenä oleva esikatselukuva.
     `;
@@ -89,6 +91,11 @@ export async function POST(request: Request) {
           <p><strong>Tunnistuksen tarkkuus (Threshold):</strong> ${threshold}</p>
           <p><strong>Tausta poistettu:</strong> ${backgroundRemoved ? 'Kyllä' : 'Ei'}</p>
           <p><strong>Valittu taustakuva:</strong> ${selectedBackgroundPath || 'Ei valittu / Ei käytössä'}</p>
+          ${message ? `
+          <hr>
+          <h3>Lisäviesti:</h3>
+          <p style="white-space: pre-wrap;">${message.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
+          ` : ''}
           <hr>
           <p>Katso liitteenä oleva esikatselukuva.</p>
           ${imageAttachment ? '<p><img src="cid:unique-preview-image" alt="Vanne-esikatselu" style="max-width: 400px; height: auto;"/></p>' : '<p><i>Esikatselukuvaa ei voitu liittää.</i></p>'}
