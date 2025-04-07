@@ -377,6 +377,10 @@ const presetColors = [
     { name: 'Kulta', value: '#ffd700' },
     { name: 'Musta', value: '#000000' },
     { name: 'Hopea', value: '#c0c0c0' },
+    { name: 'Oranssi', value: '#ffa500' },
+    { name: 'Valkoinen', value: '#ffffff' },
+    { name: 'Violetti', value: '#800080' },    // Purple
+    { name: 'Ruskea', value: '#a52a2a' },      // Brown
 ];
 
 // Client-side image resizing function
