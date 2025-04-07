@@ -1074,68 +1074,74 @@ const handleColorInputChange = (newColor: string) => {
 const handleRemoveBackgroundChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const instanceId = Math.random().toString(36).substring(7);
     const newValue = e.target.checked;
-    console.log(`[BG ${instanceId}] START - newValue=${newValue}`);
+    console.log(`[BG ${instanceId}] START - User wants removeBackground=${newValue}. Current state=${removeBackground}`);
 
     // Check all busy states first with detailed logging
-    const busyStates = {
-        isApplyingChange,
-        isCalculatingThresholds,
-        isProcessingImage
-    };
+    const busyStates = { isApplyingChange, isCalculatingThresholds, isProcessingImage };
     const isBusy = Object.values(busyStates).some(Boolean);
 
     if (isBusy) {
-        console.log(`[BG ${instanceId}] BLOCKED - Busy states:`, busyStates);
+        console.warn(`[BG ${instanceId}] BLOCKED - Busy states:`, busyStates);
+        // Prevent default and revert the checkbox visually immediately
         e.preventDefault();
         e.target.checked = !newValue;
+        alert("Toinen kuvan käsittely on vielä kesken. Odota hetki.");
         return;
     }
 
-    console.log(`[BG ${instanceId}] Setting removeBackground=${newValue}`);
-    setRemoveBackground(newValue);
-
-    if (!isInitialProcessingDone) {
-        console.log(`[BG ${instanceId}] Initial processing not done, only updated state`);
-        return;
-    }
+    setIsApplyingChange(true);
+    console.log(`[BG ${instanceId}] Set isApplyingChange=true`);
 
     try {
-        // Check if reprocessing is needed
-        const needsReprocessing = (newValue && !carOnlyImageBitmap) || (!newValue && !originalImageBitmap);
-        console.log(`[BG ${instanceId}] Process check:`, {
-            needsReprocessing,
-            hasCarBitmap: !!carOnlyImageBitmap,
-            hasOriginalBitmap: !!originalImageBitmap
-        });
+        // --- Crucial Check: Verify required bitmap for the NEW state ---
+        const requiredBitmap = newValue ? carOnlyImageBitmap : originalImageBitmap;
+        const requiredBitmapName = newValue ? 'carOnlyImageBitmap' : 'originalImageBitmap';
 
-        if (needsReprocessing) {
-            console.log(`[BG ${instanceId}] Starting reprocessing path...`);
-            setIsInitialProcessingDone(false);
-            await processImage(); // Handles its own busy state
-            console.log(`[BG ${instanceId}] Reprocessing complete`);
-        } else {
-            console.log(`[BG ${instanceId}] Starting color update path - Setting isApplyingChange=true`);
-            setIsApplyingChange(true);
-            try {
-                setSelectedBackground(null);
-                setIsBackgroundSectionOpen(false);
-                console.log(`[BG ${instanceId}] Calling changeColor`);
-                await changeColor(color);
-                console.log(`[BG ${instanceId}] Color change successful (flag handled by changeColor)`);
-            } catch (error) {
-                console.error(`[BG ${instanceId}] Color update ERROR:`, error);
-                alert('Virhe tausta-asetusten vaihdossa. Yritä uudelleen.');
-                console.log(`[BG ${instanceId}] Reverting state and resetting flag`);
-                setRemoveBackground(!newValue);
-                setIsApplyingChange(false);
-            }
+        console.log(`[BG ${instanceId}] Checking for required bitmap: ${requiredBitmapName}. Exists? ${!!requiredBitmap}`);
+
+        if (!requiredBitmap) {
+            // If the required bitmap is missing, we cannot proceed with the visual change.
+            // Revert the state and the checkbox.
+            console.error(`[BG ${instanceId}] Required bitmap '${requiredBitmapName}' is missing. Cannot change background state.`);
+            alert(`Tarvittavaa kuvadataa (${newValue ? 'taustanpoistoa varten' : 'alkuperäistä taustaa varten'}) ei löytynyt. Toimintoa ei voi suorittaa.`);
+            // Revert checkbox state visually
+            e.target.checked = !newValue;
+            throw new Error(`Required bitmap not available: ${requiredBitmapName}`); // Throw to prevent further execution
         }
+
+        // --- State Update ---
+        // Only update state *after* confirming the required bitmap exists
+        console.log(`[BG ${instanceId}] Required bitmap exists. Setting removeBackground=${newValue}`);
+        setRemoveBackground(newValue);
+
+        // Reset background image selection if background removal is turned OFF,
+        // or if it's turned ON (to ensure a clean slate before selecting a new background image)
+        setSelectedBackground(null);
+        setIsBackgroundSectionOpen(false); // Close the section regardless
+
+        // --- Apply Visual Change ---
+        // Only apply visual changes if initial processing is done
+        if (isInitialProcessingDone) {
+            console.log(`[BG ${instanceId}] Calling applyColorWithMask with explicit override removeBgOverride=${newValue}`);
+            // Pass the 'newValue' explicitly as the override.
+            // applyColorWithMask should prioritize this override over the component's potentially stale 'removeBackground' state.
+            await applyColorWithMask(color, newValue, colorIntensity);
+            console.log(`[BG ${instanceId}] applyColorWithMask completed.`);
+        } else {
+            console.log(`[BG ${instanceId}] Initial processing not done, only state updated.`);
+        }
+
+        console.log(`[BG ${instanceId}] Background change successful for newValue=${newValue}`);
+
     } catch (error) {
-        console.error(`[BG ${instanceId}] TOP LEVEL ERROR:`, error);
-        alert('Virhe tausta-asetusten vaihdossa. Yritä uudelleen.');
-        console.log(`[BG ${instanceId}] Reverting state and resetting all flags`);
-        setRemoveBackground(!newValue);
-        setIsProcessingImage(false);
+        console.error(`[BG ${instanceId}] ERROR during background change:`, error);
+        // If an error occurred (e.g., missing bitmap), ensure the component state reflects the actual visual state
+        setRemoveBackground(!newValue); // Revert state if an error stopped the process
+        setSelectedBackground(null);
+        alert(`Virhe taustan vaihdossa: ${error instanceof Error ? error.message : 'Tuntematon virhe'}`);
+    } finally {
+        // Ensure busy flag is reset regardless of success or failure
+        console.log(`[BG ${instanceId}] FINALLY - Setting isApplyingChange=false`);
         setIsApplyingChange(false);
     }
 }, [
