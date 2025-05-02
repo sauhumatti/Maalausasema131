@@ -1326,6 +1326,30 @@ return (
                                 </div>
                             ) : null}
                         </div>
+
+                        {/* Intensity Slider */}
+                        {isInitialProcessingDone && color !== 'transparent' && (
+                            <div className="mt-6 pt-4 border-t border-gray-100">
+                                <label htmlFor="intensitySlider" className="font-medium mb-3 block text-gray-700">
+                                    Värin voimakkuus: <span className="font-normal text-gray-600">{colorIntensity}%</span>
+                                </label>
+                                <div className="relative py-2">
+                                    <input
+                                        type="range"
+                                        id="intensitySlider"
+                                        min="0" max="100" step="5"
+                                        value={colorIntensity}
+                                        onChange={handleIntensityChange}
+                                        disabled={isApplyingChange || isCalculatingThresholds || isProcessingImage}
+                                        className={`w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-primary disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary/50`}
+                                    />
+                                    <div className="flex justify-between mt-1 text-xs text-gray-500 px-1">
+                                        <span>Haalea</span>
+                                        <span>Voimakas</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div> {/* End Step 2 */}
 
 
@@ -1433,27 +1457,6 @@ return (
                                              readOnly={color === 'transparent'} // Make readonly if transparent
                                          />
                                      </div>
-                                     {/* Intensity Slider */}
-                                      <div className="mt-4">
-                                          <label htmlFor="intensitySlider" className="font-medium mb-3 block text-gray-700">
-                                             Värin voimakkuus: <span className="font-normal text-gray-600">{colorIntensity}%</span>
-                                         </label>
-                                          <div className="relative py-2">
-                                              <input
-                                                 type="range"
-                                                 id="intensitySlider"
-                                                 min="0" max="100" step="5"
-                                                 value={colorIntensity}
-                                                 onChange={handleIntensityChange}
-                                                 disabled={isApplyingChange || isCalculatingThresholds || isProcessingImage || color === 'transparent'}
-                                                 className={`w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-primary disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary/50`}
-                                              />
-                                              <div className="flex justify-between mt-1 text-xs text-gray-500 px-1">
-                                                  <span>Haalea</span>
-                                                  <span>Voimakas</span>
-                                              </div>
-                                          </div>
-                                      </div>
                                  </div> {/* End Color Section */}
 
                                  {/* --- Background Options --- */}
